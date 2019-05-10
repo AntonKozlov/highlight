@@ -126,4 +126,34 @@ class ExternalHighlighterTest {
         }
         assertDeque(0, Color.BLACK, 0);
     }
+
+    @Test
+    void randomTyping() throws TimeoutException {
+        hl.insert(0, "R");
+        hl.insert(0, "G");
+        hl.insert(0, "B");
+
+        assertDeque(2, Color.RED);
+        assertDeque(1, Color.GREEN);
+        assertDeque(0, Color.BLUE);
+
+        hl.insert(5, "R");
+        hl.insert(3, "G");
+        hl.insert(1, "B");
+
+        assertDeque(7, Color.RED);
+        assertDeque(4, Color.GREEN);
+        assertDeque(1, Color.BLUE);
+    }
+
+    @Test
+    void deleteTyped() throws TimeoutException {
+        hl.insert(0, "R");
+        hl.remove(0, 1);
+        hl.insert(0, "G");
+        hl.remove(0, 1);
+        hl.insert(0, "B");
+
+        assertDeque(0, Color.BLUE);
+    }
 }
