@@ -2,8 +2,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import java.awt.*;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -36,12 +36,13 @@ class ExternalHighlighterTest {
         }
     }
 
-    private static class TimeoutException extends Exception {}
+    private static class TimeoutException extends Exception {
+    }
 
-    void assertDeque(int pos, Color c) throws TimeoutException {
+    void assertDeque(int pos, Color c, int timeoutMs) throws TimeoutException {
         ExternalHighlighter.Highlight h = hl.dequeue();
         long startTs = System.nanoTime();
-        while (h == null && (((System.nanoTime() - startTs) / 1_000_000_000) < 10)) {
+        while (h == null && (((System.nanoTime() - startTs) / 1_000_000) < timeoutMs)) {
             try {
                 Thread.sleep(100);
             } catch (InterruptedException ignored) {
@@ -53,6 +54,11 @@ class ExternalHighlighterTest {
         }
         assertEquals(pos, h.pos);
         assertEquals(c, h.color);
+
+    }
+
+    void assertDeque(int pos, Color c) throws TimeoutException {
+        assertDeque(pos, c, 3_000);
     }
 
     @Test
@@ -92,5 +98,32 @@ class ExternalHighlighterTest {
     void restoreableSleep() throws TimeoutException {
         hl.insert(0, "TS");
         assertDeque(0, Color.GRAY);
+    }
+
+    static class NotifyRunnable implements Runnable {
+        public int cnt = 0;
+
+        @Override
+        public synchronized void run() {
+            ++cnt;
+            notify();
+        }
+    }
+
+    @Test
+    void notifyCalled() throws TimeoutException, InterruptedException {
+        hl.shutdown();
+
+        NotifyRunnable r = new NotifyRunnable();
+        hl = new ExternalHighlighter(r, "highlight_test", 2_000);
+        synchronized (r) {
+            hl.insert(0, "a");
+            try {
+                r.wait(2_000);
+            } catch (InterruptedException ignored) {
+            }
+            assertTrue(0 < r.cnt);
+        }
+        assertDeque(0, Color.BLACK, 0);
     }
 }

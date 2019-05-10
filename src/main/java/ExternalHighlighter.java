@@ -190,6 +190,10 @@ public class ExternalHighlighter {
                         for (int i = 0; i < iBytes.length; i += 3) {
                             outQ.add(new Color(iBytes[i] & 0xff, iBytes[i + 1] & 0xff, iBytes[i + 2] & 0xff));
                         }
+
+                        if (notify != null) {
+                            notify.run();
+                        }
                     }
                 }
             } catch (ExitException e) {
