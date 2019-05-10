@@ -23,7 +23,7 @@ public class ExternalHighlighter {
 
         boolean incFrom() {
             ++off;
-            return getLen() <= from + off;
+            return getLen() <= off;
         }
 
         abstract int getLen();

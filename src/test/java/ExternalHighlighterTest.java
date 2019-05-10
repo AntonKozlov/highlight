@@ -71,6 +71,15 @@ class ExternalHighlighterTest {
         assertDeque(0, Color.RED);
         assertDeque(1, Color.GREEN);
         assertDeque(2, Color.BLUE);
+
+        hl.insert(6, "RGBRGB");
+
+        assertDeque(6, Color.RED);
+        assertDeque(7, Color.GREEN);
+        assertDeque(8, Color.BLUE);
+        assertDeque(9, Color.RED);
+        assertDeque(10, Color.GREEN);
+        assertDeque(11, Color.BLUE);
     }
 
     @Test
