@@ -29,6 +29,7 @@ class ExternalHighlighterTest {
 
     @AfterEach
     void afterEach() {
+        assertThrows(TimeoutException.class, () -> assertDeque(0, Color.BLACK, 300));
         try {
             hl.shutdown();
         } catch (InterruptedException e) {
@@ -44,7 +45,7 @@ class ExternalHighlighterTest {
         long startTs = System.nanoTime();
         while (h == null && (((System.nanoTime() - startTs) / 1_000_000) < timeoutMs)) {
             try {
-                Thread.sleep(100);
+                Thread.sleep(3);
             } catch (InterruptedException ignored) {
             }
             h = hl.dequeue();
@@ -98,6 +99,7 @@ class ExternalHighlighterTest {
     void restoreableSleep() throws TimeoutException {
         hl.insert(0, "TS");
         assertDeque(0, Color.GRAY);
+        assertDeque(1, Color.GRAY);
     }
 
     static class NotifyRunnable implements Runnable {
