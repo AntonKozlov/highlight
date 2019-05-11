@@ -10,9 +10,11 @@ import java.awt.*;
 class Main {
     static class HighlightChangeListener implements DocumentListener {
         final ExternalHighlighter highlighter;
+        final JTextPane textPane;
         StyledDocument doc;
 
-        HighlightChangeListener() {
+        HighlightChangeListener(JTextPane textPane) {
+            this.textPane = textPane;
             highlighter = new ExternalHighlighter(
                     () -> SwingUtilities.invokeLater(this::processResponses));
         }
@@ -46,6 +48,7 @@ class Main {
                 StyleConstants.setBackground(attrSet, h.color);
                 StyleConstants.setForeground(attrSet, Color.WHITE);
                 doc.setCharacterAttributes(h.pos, 1, attrSet, false);
+                textPane.getInputAttributes().addAttributes(attrSet);
             }
         }
     }
@@ -56,7 +59,7 @@ class Main {
 
         JTextPane textPane = new JTextPane();
         StyledDocument doc = textPane.getStyledDocument();
-        doc.addDocumentListener(new HighlightChangeListener());
+        doc.addDocumentListener(new HighlightChangeListener(textPane));
 
         JScrollPane scrollPane = new JScrollPane(textPane);
         frame.add(scrollPane);
