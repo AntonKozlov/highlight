@@ -20,15 +20,15 @@ void highlight_fn(std::vector<char> const& text, std::function<bool()> const& is
 
     case 'S':
       if (state == 1) {
-	    using namespace std::chrono_literals;
-	    std::this_thread::sleep_for(1s);
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(1s);
       }
       *out++ = grey;
       break;
 
     case 'C':
       if (state == 1) {
-	    std::terminate();
+        std::terminate();
       }
       *out++ = grey;
       break;
@@ -45,11 +45,11 @@ void highlight_fn(std::vector<char> const& text, std::function<bool()> const& is
 
     default:
       if (std::isdigit(c))
-	    *out++ = Color{0, 0, 255};
+        *out++ = Color{0, 0, 255};
       else if (std::isspace(c))
-	    *out++ = Color{255, 255, 255};
+        *out++ = Color{255, 255, 255};
       else
-	    *out++ = Color{0, 0, 0};
+        *out++ = Color{0, 0, 0};
     }
   }
 }

@@ -1,3 +1,4 @@
+import name.anton.highlight.ExternalHighlighter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,13 +14,17 @@ import static org.junit.jupiter.api.Assertions.*;
 class ExternalHighlighterTest {
     private ExternalHighlighter hl;
 
+    static final boolean DEBUG = false;
+
     @BeforeAll
     static void beforeAll() {
         Logger logger = Logger.getGlobal();
-        ConsoleHandler ch = new ConsoleHandler();
-        ch.setLevel(Level.ALL);
-        logger.addHandler(ch);
-        logger.setLevel(Level.ALL);
+        if (DEBUG) {
+            ConsoleHandler ch = new ConsoleHandler();
+            ch.setLevel(Level.ALL);
+            logger.addHandler(ch);
+            logger.setLevel(Level.ALL);
+        }
     }
 
     @BeforeEach
@@ -112,7 +117,7 @@ class ExternalHighlighterTest {
     }
 
     static class NotifyRunnable implements Runnable {
-        public int cnt = 0;
+        int cnt = 0;
 
         @Override
         public synchronized void run() {

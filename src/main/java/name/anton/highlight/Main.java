@@ -1,16 +1,15 @@
 
+package name.anton.highlight;
+
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.*;
 import java.awt.*;
-import java.util.logging.ConsoleHandler;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
-public class Main {
+class Main {
     static class HighlightChangeListener implements DocumentListener {
-        ExternalHighlighter highlighter;
+        final ExternalHighlighter highlighter;
         StyledDocument doc;
 
         HighlightChangeListener() {
@@ -68,11 +67,6 @@ public class Main {
     }
 
     public static void main(String[] args) {
-        Logger logger = Logger.getGlobal();
-        ConsoleHandler ch = new ConsoleHandler();
-        ch.setLevel(Level.ALL);
-        logger.addHandler(ch);
-        logger.setLevel(Level.ALL);
         SwingUtilities.invokeLater(Main::createAndShow);
     }
 }

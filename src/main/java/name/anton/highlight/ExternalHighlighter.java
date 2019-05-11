@@ -1,3 +1,6 @@
+
+package name.anton.highlight;
+
 import java.awt.Color;
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,46 +13,37 @@ import java.util.logging.Logger;
 
 public class ExternalHighlighter {
     abstract class Change {
-        int from;
+        final int from;
         int off;
-
         Change(int from) {
             this.from = from;
         }
-
         int getFrom() {
             return from + off;
         }
-
         boolean incFrom() {
             ++off;
             return getLen() <= off;
         }
-
         abstract int getLen();
-
         abstract  int adjustPos(int pos);
     }
 
     class Insert extends Change {
-        String text;
-
+        final String text;
         Insert(int from, String text) {
             super(from);
             this.text = text;
         }
-
         String getText() {
             if (text == null) {
                 throw new UnsupportedOperationException();
             }
             return text;
         }
-
         int getLen() {
             return text.length();
         }
-
         int adjustPos(int pos) {
             if (from <= pos) {
                 return pos + getLen();
@@ -59,17 +53,14 @@ public class ExternalHighlighter {
     }
 
     class Remove extends Change {
-        int len;
-
+        final int len;
         Remove(int from, int len) {
             super(from);
             this.len = len;
         }
-
         int getLen() {
             return len;
         }
-
         int adjustPos(int pos) {
             if (from <= pos && pos < from + getLen()) {
                 return -1;
@@ -81,8 +72,8 @@ public class ExternalHighlighter {
     }
 
     public class Highlight {
-        Color color;
-        int pos;
+        public final Color color;
+        public final int pos;
 
         Highlight(int pos, Color color) {
             this.pos = pos;
@@ -100,9 +91,9 @@ public class ExternalHighlighter {
             this.notify = notify;
         }
 
-        Runtime runtime = Runtime.getRuntime();
+        final Runtime runtime = Runtime.getRuntime();
 
-        Runnable notify;
+        final Runnable notify;
         Process process;
         InputStream is;
         OutputStream os;
@@ -222,7 +213,7 @@ public class ExternalHighlighter {
         this(notify, "highlight", 5_500);
     }
 
-    ExternalHighlighter(Runnable notify, String cmdid, int awaitMs) {
+    public ExternalHighlighter(Runnable notify, String cmdid, int awaitMs) {
         this.cmdid = cmdid;
         this.awaitMs = awaitMs;
 
@@ -247,45 +238,64 @@ public class ExternalHighlighter {
         inProgress.add(new Remove(pos, len));
     }
 
+    private Color getColor() {
+        Color color;
+        synchronized (outQ) {
+            color = outQ.poll();
+        }
+        return color;
+    }
+
+    private Insert getInsert() {
+        Change m = inProgress.peek();
+        while (m instanceof Remove) {
+            inProgress.remove();
+            m = inProgress.peek();
+        }
+        return (Insert)m;
+    }
+
+    private int computeCurrentPos(Insert m) {
+        int mPos = m.getFrom();
+        logger.fine("deque1 " + mPos);
+        Iterator<Change> ic = inProgress.iterator();
+        ic.next();
+        while (ic.hasNext()) {
+            mPos = ic.next().adjustPos(mPos);
+            if (mPos == -1) {
+                break;
+            }
+        }
+
+        if (m.incFrom()) {
+            inProgress.remove();
+        }
+
+        logger.fine("deque2 " + mPos);
+        return mPos;
+    }
+
     public Highlight dequeue() {
+        Color color = null;
+        int pos = -1;
+
         do {
-            Color color;
-            synchronized (outQ) {
-                color = outQ.poll();
-            }
+            color = getColor();
             if (color == null) {
+                logger.fine("dequeue empty");
                 return null;
             }
 
-            Change m = inProgress.peek();
-            while (m instanceof Remove) {
-                inProgress.remove();
-                m = inProgress.peek();
-            }
+            Insert m = getInsert();
             if (m == null) {
-                return null;
+                logger.fine("dequeue no Insert");
+                continue;
             }
 
-            int mPos = m.getFrom();
-            logger.fine("deque1 " + mPos);
-            Iterator<Change> ic = inProgress.iterator();
-            ic.next();
-            while (ic.hasNext()) {
-                mPos = ic.next().adjustPos(mPos);
-                if (mPos == -1) {
-                    break;
-                }
-            }
+            pos = computeCurrentPos(m);
+        } while (pos < 0);
 
-            if (m.incFrom()) {
-                inProgress.remove();
-            }
-
-            logger.fine("deque2 " + mPos);
-            if (0 <= mPos) {
-                return new Highlight(mPos, color);
-            }
-        } while (true);
+        return new Highlight(pos, color);
     }
 
     public void shutdown() throws InterruptedException {
