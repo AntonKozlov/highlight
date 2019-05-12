@@ -45,8 +45,7 @@ class Main {
             ExternalHighlighter.Highlight h;
             while (null != (h = highlighter.dequeue())) {
                 SimpleAttributeSet attrSet = new SimpleAttributeSet();
-                StyleConstants.setBackground(attrSet, h.color);
-                StyleConstants.setForeground(attrSet, Color.WHITE);
+                StyleConstants.setForeground(attrSet, h.color);
                 doc.setCharacterAttributes(h.pos, 1, attrSet, false);
                 textPane.getInputAttributes().addAttributes(attrSet);
             }
