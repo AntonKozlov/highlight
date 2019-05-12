@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ExternalHighlighterTest {
     private ExternalHighlighter hl;
 
-    static final boolean DEBUG = false;
+    private static final boolean DEBUG = false;
 
     @BeforeAll
     static void beforeAll() {

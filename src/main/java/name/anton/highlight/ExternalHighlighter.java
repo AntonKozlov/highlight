@@ -92,7 +92,7 @@ public class ExternalHighlighter {
         private final Queue<Insert> extInQ;
         private final Queue<Color> outQ;
         private final String cmdPath;
-        private int timeoutMs;
+        private final int timeoutMs;
 
         private boolean running;
         private Process process;
@@ -242,9 +242,6 @@ public class ExternalHighlighter {
 
     private final Logger logger = Logger.getGlobal();
 
-    private final String cmdid;
-    private final int awaitMs;
-
     private final Queue<Change> inProgress;
     private final Queue<Color> outQ;
 
@@ -256,9 +253,6 @@ public class ExternalHighlighter {
     }
 
     public ExternalHighlighter(Runnable notify, String cmdid, int timeoutMs) {
-        this.cmdid = cmdid;
-        this.awaitMs = timeoutMs;
-
         inProgress = new ArrayDeque<>();
         outQ = new ArrayDeque<>();
 
