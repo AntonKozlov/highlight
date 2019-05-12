@@ -23,7 +23,7 @@ public class ExternalHighlighter {
         }
         boolean incFrom() {
             ++off;
-            return getLen() <= off;
+            return getLen() <= 0;
         }
         abstract int getLen();
         abstract  int adjustPos(int pos);
@@ -39,10 +39,10 @@ public class ExternalHighlighter {
             if (text == null) {
                 throw new UnsupportedOperationException();
             }
-            return text;
+            return text.substring(off);
         }
         int getLen() {
-            return text.length();
+            return text.length() - off;
         }
         int adjustPos(int pos) {
             if (from <= pos) {
@@ -59,7 +59,7 @@ public class ExternalHighlighter {
             this.len = len;
         }
         int getLen() {
-            return len;
+            return len - off;
         }
         int adjustPos(int pos) {
             if (from <= pos && pos < from + getLen()) {
@@ -81,169 +81,196 @@ public class ExternalHighlighter {
         }
     }
 
-    static class ExitException extends Exception {
-    }
+    static class WatcherEntry implements Runnable {
+        private static final Logger logger = Logger.getGlobal();
+        private static final Runtime runtime = Runtime.getRuntime();
+        private static final int INPUT_COLOR_N = 16;
+        private static final int RETRY_INTERVAL_MS = 3;
 
-    class WatcherEntry implements Runnable {
-        private final Logger logger = Logger.getGlobal();
+        private final Runnable notify;
+        private final Queue<Insert> extInQ;
+        private final Queue<Color> outQ;
+        private final String cmdPath;
+        private int timeoutMs;
 
-        WatcherEntry(Runnable notify) {
+        private boolean running;
+        private Process process;
+        private InputStream is;
+        private OutputStream os;
+
+        WatcherEntry(Runnable notify, Queue<Color> outQ, String cmdPath, int timeoutMs) {
             this.notify = notify;
+            this.outQ = outQ;
+            this.timeoutMs = timeoutMs;
+            this.cmdPath = cmdPath;
+
+            this.extInQ = new ArrayDeque<>();
+            this.running = true;
         }
 
-        final Runtime runtime = Runtime.getRuntime();
+        synchronized void setExiting() {
+            running = false;
+            this.notify();
+        }
 
-        final Runnable notify;
-        Process process;
-        InputStream is;
-        OutputStream os;
-
-        private void handleExitRequest() throws ExitException {
-            if (exiting) {
-                throw new ExitException();
+        private synchronized void sendInsert(Insert c) throws IOException {
+            final byte[] oBytes = c.getText().getBytes();
+            if (process != null) {
+                os.write(oBytes);
+                os.flush();
+                logger.finer("send" + Arrays.toString(oBytes));
             }
         }
 
-        private void restartProcess() {
+        synchronized void pushInsert(Insert c) {
+            extInQ.add(c);
+            this.notify();
+            try {
+                sendInsert(c);
+            } catch (IOException ignored) {
+            }
+        }
+
+        synchronized private void restartProcess() {
+            logger.finer("restart");
+
             if (process != null) {
                 process.destroy();
             }
             try {
-                process = runtime.exec("./csrc/" + cmdid);
+                process = runtime.exec(cmdPath);
                 is = process.getInputStream();
                 os = process.getOutputStream();
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        }
 
-        private Insert getInsert() throws ExitException {
-            synchronized (extInQ) {
-                while (true) {
-                    handleExitRequest();
-                    Insert c = extInQ.poll();
-                    if (c != null) {
-                        logger.finer("get insert");
-                        return c;
-                    }
-                    try {
-                        extInQ.wait();
-                    } catch (InterruptedException ignored) {
-                    }
+            try {
+                for (Insert i : extInQ) {
+                    sendInsert(i);
                 }
+            } catch (IOException ignored) {
             }
         }
 
-        private boolean doHighlight(byte[] oBytes, byte[] iBytes) throws IOException {
-            logger.finer("send " + Arrays.toString(oBytes));
-            os.write(oBytes);
-            os.flush();
-
-            int iLen = is.read(iBytes, 0, is.available());
-            long startTs = System.nanoTime();
-            while (iLen < iBytes.length && (System.nanoTime() - startTs < awaitMs * 1_000_000)) {
-                try {
-                    Thread.sleep(RETRY_INTERVAL_MS);
-                } catch (InterruptedException ignored) {
-                }
-                iLen += is.read(iBytes, iLen, is.available());
+        private int tryRead(byte[] iBytes) {
+            try {
+                return is.read(iBytes, 0, Math.min(is.available(), iBytes.length));
+            } catch (IOException e) {
+                return 0;
             }
-            return iLen == iBytes.length;
         }
 
         @Override
         public void run() {
-            try {
-                restartProcess();
+            byte[] iBytes = new byte[INPUT_COLOR_N * 3];
+            restartProcess();
 
-                while (true) {
-                    Insert c = getInsert();
-
-                    final byte[] oBytes = c.getText().getBytes();
-                    byte[] iBytes = new byte[oBytes.length * 3];
-
-                    while (true) {
-                        boolean read = false;
+            mainloop: while (running) {
+                synchronized (this) {
+                    if (extInQ.isEmpty()) {
                         try {
-                            handleExitRequest();
-                            read = doHighlight(oBytes, iBytes);
-                        } catch (IOException e) {
-                            logger.finer(e.toString());
+                            logger.finer("extQ empty");
+
+                            this.wait();
+                        } catch (InterruptedException ignored) {
                         }
-                        if (read) {
-                            break;
+                        if (!running) {
+                            break mainloop;
                         }
+                    }
+                }
+
+                logger.finer("extQ nonEmpty");
+                long startTs = System.nanoTime();
+                int iLen = tryRead(iBytes);
+                while (iLen == 0) {
+                    while (iLen == 0 && (System.nanoTime() - startTs < timeoutMs * 1_000_000)) {
+                        try {
+                            Thread.sleep(RETRY_INTERVAL_MS);
+                        } catch (InterruptedException ignored) {
+                        }
+                        iLen = tryRead(iBytes);
+                    }
+                    if (!running) {
+                        break mainloop;
+                    }
+                    startTs = System.nanoTime();
+                    if (iLen == 0) {
                         restartProcess();
                     }
+                }
 
-                    logger.finer("get " + Arrays.toString(iBytes));
-                    synchronized (outQ) {
-                        for (int i = 0; i < iBytes.length; i += 3) {
-                            outQ.add(new Color(iBytes[i] & 0xff, iBytes[i + 1] & 0xff, iBytes[i + 2] & 0xff));
-                        }
+                logger.finer("get " + Arrays.toString(Arrays.copyOfRange(iBytes, 0, iLen)));
 
-                        if (notify != null) {
-                            notify.run();
+                // with current wrapper implementation for highlight function, it's impossible to get partial
+                // response. But it's just easier to treat it so.
+                synchronized (this) {
+                    for (int i = 0; i < iLen; i += 3) {
+                        if (extInQ.peek().incFrom()) {
+                            extInQ.remove();
                         }
                     }
                 }
-            } catch (ExitException e) {
-                if (process != null) {
-                    process.destroy();
+                synchronized (outQ) {
+                    for (int i = 0; i < iLen; i += 3) {
+                        outQ.add(new Color(iBytes[i] & 0xff, iBytes[i + 1] & 0xff, iBytes[i + 2] & 0xff));
+                    }
                 }
+
+                if (notify != null) {
+                    notify.run();
+                }
+            }
+
+            if (process != null) {
+                process.destroy();
             }
         }
     }
 
     private final Logger logger = Logger.getGlobal();
 
-    private static final int RETRY_INTERVAL_MS = 3;
     private final String cmdid;
     private final int awaitMs;
 
-
-    private final Queue<Insert> extInQ;
     private final Queue<Change> inProgress;
     private final Queue<Color> outQ;
 
-    private boolean exiting;
     private final Thread watcherThread;
+    private final WatcherEntry watcherEntry;
 
     ExternalHighlighter(Runnable notify) {
         this(notify, "highlight", 5_500);
     }
 
-    public ExternalHighlighter(Runnable notify, String cmdid, int awaitMs) {
+    public ExternalHighlighter(Runnable notify, String cmdid, int timeoutMs) {
         this.cmdid = cmdid;
-        this.awaitMs = awaitMs;
+        this.awaitMs = timeoutMs;
 
-        watcherThread = new Thread(new WatcherEntry(notify));
-        extInQ = new ArrayDeque<>();
         inProgress = new ArrayDeque<>();
         outQ = new ArrayDeque<>();
 
+        watcherEntry = new WatcherEntry(notify, outQ, "./csrc/" + cmdid, timeoutMs);
+        watcherThread = new Thread(watcherEntry);
         watcherThread.start();
     }
 
+    // see `dequeue` comment
     public void insert(int pos, String text) {
-        Insert ins = new Insert(pos, text);
-        inProgress.add(ins);
-        synchronized (extInQ) {
-            extInQ.add(ins);
-            extInQ.notify();
-        }
+        inProgress.add(new Insert(pos, text));
+        watcherEntry.pushInsert(new Insert(pos, text));
     }
 
+    // see `dequeue` comment
     public void remove(int pos, int len) {
         inProgress.add(new Remove(pos, len));
     }
 
     private Color getColor() {
-        Color color;
         synchronized (outQ) {
-            color = outQ.poll();
+            return outQ.poll();
         }
-        return color;
     }
 
     private Insert getInsert() {
@@ -275,6 +302,10 @@ public class ExternalHighlighter {
         return mPos;
     }
 
+    // `dequeue` should be externally synchronized with `insert` and `remove`.
+    // It computes position of highlighted character, that can be falsified by
+    // inserting/removing before the position. So it's user responsibility to
+    // assure that those functions are not called while this one is executed.
     public Highlight dequeue() {
         Color color = null;
         int pos = -1;
@@ -299,10 +330,7 @@ public class ExternalHighlighter {
     }
 
     public void shutdown() throws InterruptedException {
-        synchronized (extInQ) {
-            exiting = true;
-            extInQ.notify();
-        }
+        watcherEntry.setExiting();
         watcherThread.join();
     }
 }

@@ -104,8 +104,8 @@ class ExternalHighlighterTest {
     @Test
     void restoreableCrash() throws TimeoutException {
         hl.insert(0, "T");
-        hl.insert(1, "C");
         assertDeque(0, Color.GRAY);
+        hl.insert(1, "C");
         assertDeque(1, Color.GRAY);
     }
 
