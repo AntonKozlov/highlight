@@ -9,6 +9,7 @@ import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Queue;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 public class ExternalHighlighter {
@@ -161,6 +162,14 @@ public class ExternalHighlighter {
             }
         }
 
+        private boolean processAlive() {
+            try {
+                return !process.waitFor(0, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                return true;
+            }
+        }
+
         @Override
         public void run() {
             byte[] iBytes = new byte[INPUT_COLOR_N * 3];
@@ -185,7 +194,9 @@ public class ExternalHighlighter {
                 long startTs = System.nanoTime();
                 int iLen = tryRead(iBytes);
                 while (iLen == 0) {
-                    while (iLen == 0 && (System.nanoTime() - startTs < timeoutMs * 1_000_000)) {
+                    while (iLen == 0 &&
+                            processAlive() &&
+                            (System.nanoTime() - startTs < timeoutMs * 1_000_000)) {
                         try {
                             Thread.sleep(RETRY_INTERVAL_MS);
                         } catch (InterruptedException ignored) {
