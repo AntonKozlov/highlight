@@ -87,6 +87,7 @@ public class ExternalHighlighter {
         private static final Runtime runtime = Runtime.getRuntime();
         private static final int INPUT_COLOR_N = 16;
         private static final int RETRY_INTERVAL_MS = 3;
+        private static final int EXTERNAL_QUEUE_LIMIT = 4096;
 
         private final Runnable notify;
         private final Queue<Insert> extInQ;
@@ -99,6 +100,8 @@ public class ExternalHighlighter {
         private InputStream is;
         private OutputStream os;
 
+        private int extInQWritten;
+
         WatcherEntry(Runnable notify, Queue<Color> outQ, String cmdPath, int timeoutMs) {
             this.notify = notify;
             this.outQ = outQ;
@@ -107,6 +110,7 @@ public class ExternalHighlighter {
 
             this.extInQ = new ArrayDeque<>();
             this.running = true;
+            this.extInQWritten = 0;
         }
 
         synchronized void setExiting() {
@@ -114,13 +118,16 @@ public class ExternalHighlighter {
             this.notify();
         }
 
-        private synchronized void sendInsert(Insert c) throws IOException {
+        private synchronized boolean sendInsert(Insert c) throws IOException {
             final byte[] oBytes = c.getText().getBytes();
-            if (process != null) {
-                os.write(oBytes);
+            final int len = Math.min(oBytes.length, EXTERNAL_QUEUE_LIMIT - extInQWritten);
+            if (process != null && 0 < len) {
+                os.write(oBytes.length == len ? oBytes : Arrays.copyOf(oBytes, len));
+                extInQWritten += len;
                 os.flush();
                 logger.finer("send" + Arrays.toString(oBytes));
             }
+            return len == oBytes.length;
         }
 
         private synchronized void reSendAllInserts() {
@@ -227,6 +234,9 @@ public class ExternalHighlighter {
                             extInQ.remove();
                         }
                     }
+
+                    extInQWritten -= iLen / 3;
+                    reSendAllInserts();
                 }
                 synchronized (outQ) {
                     for (int i = 0; i < iLen; i += 3) {

@@ -172,4 +172,14 @@ class ExternalHighlighterTest {
 
         assertDeque(0, Color.BLUE);
     }
+
+    @Test
+    void BigText() throws TimeoutException {
+        final int n = 100 * 1024;
+        String s = Stream.generate(() -> "R").limit(n).collect(joining());
+        hl.insert(0, s);
+        for (int i = 0; i < n; ++i) {
+            assertDeque(i, Color.RED);
+        }
+    }
 }
