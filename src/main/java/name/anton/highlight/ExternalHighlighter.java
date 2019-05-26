@@ -13,38 +13,58 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 public class ExternalHighlighter {
-    abstract class Change {
+    static abstract class Change {
         final int from;
         int off;
+
         Change(int from) {
             this.from = from;
         }
+        Change(Change c) {
+            this.from = c.from;
+            this.off = c.off;
+        }
+
         int getFrom() {
             return from + off;
         }
-        boolean incFrom() {
-            ++off;
-            return getLen() <= 0;
+
+        boolean incFrom(int delta) {
+            if (getLen() < delta) {
+                throw new RuntimeException("too big increment");
+            }
+            off += delta;
+            return getLen() == 0;
         }
+
         abstract int getLen();
-        abstract  int adjustPos(int pos);
+
+        abstract int adjustPos(int pos);
     }
 
-    class Insert extends Change {
+    static class Insert extends Change {
         final String text;
+
         Insert(int from, String text) {
             super(from);
             this.text = text;
         }
+        Insert(Insert c) {
+            super(c);
+            this.text = c.text;
+        }
+
         String getText() {
             if (text == null) {
                 throw new UnsupportedOperationException();
             }
             return text.substring(off);
         }
+
         int getLen() {
             return text.length() - off;
         }
+
         int adjustPos(int pos) {
             if (from <= pos) {
                 return pos + getLen();
@@ -53,15 +73,18 @@ public class ExternalHighlighter {
         }
     }
 
-    class Remove extends Change {
+    static class Remove extends Change {
         final int len;
+
         Remove(int from, int len) {
             super(from);
             this.len = len;
         }
+
         int getLen() {
             return len - off;
         }
+
         int adjustPos(int pos) {
             if (from <= pos && pos < from + getLen()) {
                 return -1;
@@ -72,7 +95,7 @@ public class ExternalHighlighter {
         }
     }
 
-    public class Highlight {
+    public static class Highlight {
         public final Color color;
         public final int pos;
 
@@ -91,6 +114,8 @@ public class ExternalHighlighter {
 
         private final Runnable notify;
         private final Queue<Insert> extInQ;
+        private Queue<Insert> extOutQ;
+        private int inExtOutQ;
         private final Queue<Color> outQ;
         private final String cmdPath;
         private final int timeoutMs;
@@ -100,7 +125,6 @@ public class ExternalHighlighter {
         private InputStream is;
         private OutputStream os;
 
-        private int extInQWritten;
 
         WatcherEntry(Runnable notify, Queue<Color> outQ, String cmdPath, int timeoutMs) {
             this.notify = notify;
@@ -109,8 +133,9 @@ public class ExternalHighlighter {
             this.cmdPath = cmdPath;
 
             this.extInQ = new ArrayDeque<>();
+            this.extOutQ = new ArrayDeque<>();
+            this.inExtOutQ = 0;
             this.running = true;
-            this.extInQWritten = 0;
         }
 
         synchronized void setExiting() {
@@ -118,36 +143,42 @@ public class ExternalHighlighter {
             this.notify();
         }
 
-        private synchronized boolean sendInsert(Insert c) throws IOException {
-            final byte[] oBytes = c.getText().getBytes();
-            final int len = Math.min(oBytes.length, EXTERNAL_QUEUE_LIMIT - extInQWritten);
-            if (process != null && 0 < len) {
-                os.write(oBytes.length == len ? oBytes : Arrays.copyOf(oBytes, len));
-                extInQWritten += len;
-                os.flush();
-                logger.finer("send" + Arrays.toString(oBytes));
+        private synchronized void doExtOutQ() {
+            if (process == null) {
+                return;
             }
-            return len == oBytes.length;
-        }
 
-        private synchronized void reSendAllInserts() {
             try {
-                for (Insert i : extInQ) {
-                    if (!sendInsert(i)) {
+                while (inExtOutQ < EXTERNAL_QUEUE_LIMIT) {
+                    Insert i = extOutQ.peek();
+                    if (i == null) {
                         break;
                     }
+
+                    final byte[] oBytes = i.getText().getBytes();
+                    final int len = Math.min(oBytes.length, EXTERNAL_QUEUE_LIMIT - inExtOutQ);
+
+                    byte[] writeBytes = oBytes.length == len ? oBytes : Arrays.copyOf(oBytes, len);
+
+                    logger.finer("send (" + len + "/" + inExtOutQ + ") " + Arrays.toString(oBytes));
+                    os.write(writeBytes);
+                    os.flush();
+
+                    inExtOutQ += len;
+                    if (i.incFrom(len)) {
+                        extOutQ.remove();
+                    }
                 }
-            } catch (IOException ignored) {
+            } catch (IOException ignore) {
             }
         }
 
         synchronized void pushInsert(Insert c) {
             extInQ.add(c);
             this.notify();
-            try {
-                sendInsert(c);
-            } catch (IOException ignored) {
-            }
+
+            extOutQ.add(new Insert(c));
+            doExtOutQ();
         }
 
         synchronized private void restartProcess() {
@@ -158,6 +189,12 @@ public class ExternalHighlighter {
                 process = runtime.exec(cmdPath);
                 is = process.getInputStream();
                 os = process.getOutputStream();
+                extOutQ = new ArrayDeque<>();
+                for (Insert i : extInQ) {
+                    extOutQ.add(new Insert(i));
+                }
+                inExtOutQ = 0;
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -185,7 +222,8 @@ public class ExternalHighlighter {
             restartProcess();
             logger.finer("start");
 
-            mainloop: while (running) {
+            mainloop:
+            while (running) {
                 synchronized (this) {
                     while (extInQ.isEmpty()) {
                         try {
@@ -220,7 +258,7 @@ public class ExternalHighlighter {
                     if (iLen == 0) {
                         logger.finer("timeout restart");
                         restartProcess();
-                        reSendAllInserts();
+                        doExtOutQ();
                     }
                 }
 
@@ -229,14 +267,18 @@ public class ExternalHighlighter {
                 // with current wrapper implementation for highlight function, it's impossible to get partial
                 // response. But it's just easier to treat it so.
                 synchronized (this) {
-                    for (int i = 0; i < iLen; i += 3) {
-                        if (extInQ.element().incFrom()) {
+                    int i = iLen / 3;
+                    while (0 < i) {
+                        Insert c = extInQ.element();
+                        int inc = Math.min(c.getText().length(), i);
+                        if (c.incFrom(inc)) {
                             extInQ.remove();
                         }
+                        i -= inc;
                     }
 
-                    extInQWritten -= iLen / 3;
-                    reSendAllInserts();
+                    inExtOutQ -= iLen / 3;
+                    doExtOutQ();
                 }
                 synchronized (outQ) {
                     for (int i = 0; i < iLen; i += 3) {
@@ -299,7 +341,7 @@ public class ExternalHighlighter {
             inProgress.remove();
             m = inProgress.peek();
         }
-        return (Insert)m;
+        return (Insert) m;
     }
 
     private int computeCurrentPos(Insert m) {
@@ -314,7 +356,7 @@ public class ExternalHighlighter {
             }
         }
 
-        if (m.incFrom()) {
+        if (m.incFrom(1)) {
             inProgress.remove();
         }
 

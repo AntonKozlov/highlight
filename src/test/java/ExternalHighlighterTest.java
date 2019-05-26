@@ -8,7 +8,9 @@ import java.awt.*;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 
+import static java.util.stream.Collectors.joining;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ExternalHighlighterTest {
@@ -175,11 +177,12 @@ class ExternalHighlighterTest {
 
     @Test
     void BigText() throws TimeoutException {
-        final int n = 100 * 1024;
-        String s = Stream.generate(() -> "R").limit(n).collect(joining());
+        final int n = 16 * 1024;
+        String s = Stream.generate(() -> "RB").limit(n).collect(joining());
         hl.insert(0, s);
         for (int i = 0; i < n; ++i) {
-            assertDeque(i, Color.RED);
+            assertDeque(2 * i, Color.RED);
+            assertDeque(2 * i + 1, Color.BLUE);
         }
     }
 }
