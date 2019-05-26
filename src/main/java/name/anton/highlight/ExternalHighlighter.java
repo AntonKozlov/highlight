@@ -160,7 +160,6 @@ public class ExternalHighlighter {
 
                     byte[] writeBytes = oBytes.length == len ? oBytes : Arrays.copyOf(oBytes, len);
 
-                    logger.finer("send (" + len + "/" + inExtOutQ + ") " + Arrays.toString(oBytes));
                     os.write(writeBytes);
                     os.flush();
 
@@ -227,8 +226,6 @@ public class ExternalHighlighter {
                 synchronized (this) {
                     while (extInQ.isEmpty()) {
                         try {
-                            logger.finer("extQ empty");
-
                             this.wait();
                         } catch (InterruptedException ignored) {
                         }
@@ -238,7 +235,6 @@ public class ExternalHighlighter {
                     }
                 }
 
-                logger.finer("extQ nonEmpty");
                 long startTs = System.nanoTime();
                 int iLen = tryRead(iBytes);
                 while (iLen == 0) {
@@ -261,8 +257,6 @@ public class ExternalHighlighter {
                         doExtOutQ();
                     }
                 }
-
-                logger.finer("get " + Arrays.toString(Arrays.copyOfRange(iBytes, 0, iLen)));
 
                 // with current wrapper implementation for highlight function, it's impossible to get partial
                 // response. But it's just easier to treat it so.
@@ -346,7 +340,6 @@ public class ExternalHighlighter {
 
     private int computeCurrentPos(Insert m) {
         int mPos = m.getFrom();
-        logger.fine("deque1 " + mPos);
         Iterator<Change> ic = inProgress.iterator();
         ic.next();
         while (ic.hasNext()) {
@@ -359,8 +352,6 @@ public class ExternalHighlighter {
         if (m.incFrom(1)) {
             inProgress.remove();
         }
-
-        logger.fine("deque2 " + mPos);
         return mPos;
     }
 
@@ -375,13 +366,11 @@ public class ExternalHighlighter {
         do {
             color = getColor();
             if (color == null) {
-                logger.fine("dequeue empty");
                 return null;
             }
 
             Insert m = getInsert();
             if (m == null) {
-                logger.fine("dequeue no Insert");
                 continue;
             }
 
