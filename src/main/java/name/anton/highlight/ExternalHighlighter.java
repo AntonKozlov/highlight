@@ -123,6 +123,17 @@ public class ExternalHighlighter {
             }
         }
 
+        private synchronized void reSendAllInserts() {
+            try {
+                for (Insert i : extInQ) {
+                    if (!sendInsert(i)) {
+                        break;
+                    }
+                }
+            } catch (IOException ignored) {
+            }
+        }
+
         synchronized void pushInsert(Insert c) {
             extInQ.add(c);
             this.notify();
@@ -133,8 +144,6 @@ public class ExternalHighlighter {
         }
 
         synchronized private void restartProcess() {
-            logger.finer("restart");
-
             if (process != null) {
                 process.destroy();
             }
@@ -144,13 +153,6 @@ public class ExternalHighlighter {
                 os = process.getOutputStream();
             } catch (IOException e) {
                 e.printStackTrace();
-            }
-
-            try {
-                for (Insert i : extInQ) {
-                    sendInsert(i);
-                }
-            } catch (IOException ignored) {
             }
         }
 
@@ -174,10 +176,11 @@ public class ExternalHighlighter {
         public void run() {
             byte[] iBytes = new byte[INPUT_COLOR_N * 3];
             restartProcess();
+            logger.finer("start");
 
             mainloop: while (running) {
                 synchronized (this) {
-                    if (extInQ.isEmpty()) {
+                    while (extInQ.isEmpty()) {
                         try {
                             logger.finer("extQ empty");
 
@@ -196,7 +199,7 @@ public class ExternalHighlighter {
                 while (iLen == 0) {
                     while (iLen == 0 &&
                             processAlive() &&
-                            (System.nanoTime() - startTs < timeoutMs * 1_000_000)) {
+                            (System.nanoTime() - startTs < timeoutMs * 1_000_000L)) {
                         try {
                             Thread.sleep(RETRY_INTERVAL_MS);
                         } catch (InterruptedException ignored) {
@@ -208,7 +211,9 @@ public class ExternalHighlighter {
                     }
                     startTs = System.nanoTime();
                     if (iLen == 0) {
+                        logger.finer("timeout restart");
                         restartProcess();
+                        reSendAllInserts();
                     }
                 }
 
@@ -218,7 +223,7 @@ public class ExternalHighlighter {
                 // response. But it's just easier to treat it so.
                 synchronized (this) {
                     for (int i = 0; i < iLen; i += 3) {
-                        if (extInQ.peek().incFrom()) {
+                        if (extInQ.element().incFrom()) {
                             extInQ.remove();
                         }
                     }

@@ -135,7 +135,7 @@ class ExternalHighlighterTest {
         synchronized (r) {
             hl.insert(0, "a");
             try {
-                r.wait(2_000);
+                r.wait(3_000);
             } catch (InterruptedException ignored) {
             }
             assertTrue(0 < r.cnt);
